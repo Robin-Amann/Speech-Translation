@@ -1,0 +1,3 @@
+store checkpoints here (only trained parameters)
+
+this file is only here because git does not track empty directories
