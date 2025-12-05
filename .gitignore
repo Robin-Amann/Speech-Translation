@@ -1,4 +1,5 @@
 /data/training/
+/data/datasets/
 /data/checkpoints/whisper_small/
 /code/.temp/
 
