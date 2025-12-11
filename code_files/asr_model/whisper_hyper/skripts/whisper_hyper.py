@@ -86,21 +86,20 @@ class HyperLoRAWhisperASRModel(PreTrainedModel):
         self.hooks = []
 
 
-    def compute_speech_embedding(self, audio: torch.Tensor, input_features: Optional[torch.Tensor] = None, sampling_rate: int = 16000) -> torch.Tensor:
-        if audio is None and input_features is None :
-            raise ValueError("Provide either raw `audio` or `input_features` to compute speech embedding.")
+    def compute_speech_embedding(self, audio: torch.Tensor, sampling_rate: int = 16000) -> torch.Tensor:
+        if not audio :
+            raise ValueError("Provide audio to compute speech embedding.")
         
         device = next(self.speech_encoder.parameters()).device
             
-        if audio :
-            if isinstance(audio, torch.Tensor):
-                audio_np = audio.detach().cpu().numpy()
-            else:
-                audio_np = audio  # assume numpy already
+        if isinstance(audio, torch.Tensor):
+            audio_np = audio.detach().cpu().numpy()
+        else:
+            audio_np = audio  # assume numpy already
 
-            # The processor returns a dict with input_features key
-            inputs = self.feature_extractor_encoder(audio_np, sampling_rate=sampling_rate, return_tensors="pt", padding=True)
-            input_features = inputs["input_features"].to(device)  # shape (B, seq_len, feature_dim)
+        # The processor returns a dict with input_features key
+        inputs = self.feature_extractor_encoder(audio_np, sampling_rate=sampling_rate, return_tensors="pt", padding=True)
+        input_features = inputs["input_features"].to(device)  # shape (B, seq_len, feature_dim)
 
         if input_features.device != device:
             input_features = input_features.to(device)

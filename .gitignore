@@ -1,6 +1,6 @@
-/data/training/
 /data/datasets/
 /data/checkpoints/whisper_small/
+/data/checkpoints/whisper_v3/models--openai--whisper-large-v3/
 /code/.temp/
 
 # Byte-compiled / optimized / DLL files

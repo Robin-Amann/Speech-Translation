@@ -1,0 +1,41 @@
+### preprocess torgo ###
+import code_files.asr_model.data_preperation.prepare_TORGO as prepare_torgo
+
+dataset = prepare_torgo.read_original_torgo_files()
+# prompt file has no wav file (data\datasets\TORGO\everything\F\F03\Session2\prompts\0117.txt)
+# prompt file has no wav file (data\datasets\TORGO\everything\M\M01\Session2_3\prompts\0219.txt)
+# prompt file has no wav file (data\datasets\TORGO\everything\M\M04\Session1\prompts\0066.txt)
+
+dataset = prepare_torgo.filter_torgo(dataset)
+prepare_torgo.analyze_torgo(dataset)
+# speaker #sentences
+# F01     20
+# F03     139
+# F04     101
+# M01     89
+# M02     92
+# M03     95
+# M04     86
+# M05     124
+# sum     746
+
+prepare_torgo.save(dataset)
+# saved as speakerId_session_id
+
+
+
+### generate embeddings ###
+import code_files.utils as utils
+from code_files.asr_model.whisper_hyper.skripts.mixture_model import generate_embeddings
+
+print("load data")
+dataset = utils.load_torgo()
+print("generate embeddings")
+dataset = generate_embeddings(dataset)
+# map1: 74.09 examples/s
+# map2: 4.40 s/example
+dataset = dataset.to_list()
+
+utils.save_embeddings(dataset)
+# for entry in dataset :
+#     print(entry)
