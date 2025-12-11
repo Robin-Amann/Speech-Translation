@@ -3,8 +3,9 @@
 inspect data
 - how many utterances per speaker
 
-dataset to embeddings -> visualize cohorts (visualize for speaker id to see if there is overlap (should be))
+dataset to embeddings
 - store embeddings
+- visualize cohorts (visualize for speaker id to see if there is overlap (should be))
 - generate labels for data using the GMM
 (- see how much silence is in each datapoint and if that influences the embeddings)
 

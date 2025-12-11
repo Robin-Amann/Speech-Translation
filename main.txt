@@ -17,6 +17,7 @@ prepare_torgo.analyze_torgo(dataset)
 # M03     95
 # M04     86
 # M05     124
+--------------------
 # sum     746
 
 prepare_torgo.save(dataset)
@@ -39,3 +40,24 @@ dataset = dataset.to_list()
 utils.save_embeddings(dataset)
 # for entry in dataset :
 #     print(entry)
+
+
+
+### visualize embeddings ###
+from pathlib import Path
+import code_files.magic_strings as magic_string
+from code_files.asr_model.whisper_hyper.skripts.mixture_model import visualize_embeddings
+
+target_dir = Path(magic_string.TORGO_EMBEDDINGS_PATH_LOCAL)
+
+dataset = []
+
+for txt_file in target_dir.glob("*.txt"):
+    speaker_id, session, id = txt_file.stem.split("_")
+    embedding = txt_file.read_text(encoding="utf-8").split(", ")
+
+    dataset.append((speaker_id, [float(x) for x in embedding]))
+
+visualize_embeddings(dataset)
+
+

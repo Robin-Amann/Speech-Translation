@@ -79,6 +79,7 @@ def save_embeddings(dataset: list[dict]) :
         file = target_dir / f"{Path(entry["wav_file_path"]).stem}.txt"
         file.write_text(str(entry["embedding"])[1:-1])
 
+
 def load_embeddings(dataset: list[dict]) :
     target_dir = Path(magic_string.TORGO_EMBEDDINGS_PATH_LOCAL)
 

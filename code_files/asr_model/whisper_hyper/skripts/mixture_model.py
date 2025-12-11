@@ -8,6 +8,9 @@ from typing import Literal
 from datasets import Dataset
 import torch
 import torchaudio
+import umap
+import matplotlib.pyplot as plt
+from pathlib import Path
 
 type CovarianceType = Literal['full', 'tied', 'diag', 'spherical']
 
@@ -90,3 +93,45 @@ def generate_embeddings(dataset: Dataset, sampling_rate: int=16000, batch_size=8
     )
 
     return dataset
+
+
+def visualize_embeddings(dataset: list[tuple[str, list[float]]], n_neighbors=15, min_dist=0.1, metric="euclidean") :
+    data, speaker_ids = list(zip(*dataset))    
+    X = np.array(data)
+
+    unique_speakers = sorted(set(speaker_ids))
+    speaker_to_int = {spk: i for i, spk in enumerate(unique_speakers)}
+    labels = np.array([speaker_to_int[s] for s in speaker_ids])
+
+    print("transform data")
+    reducer = umap.UMAP(
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        metric=metric,
+        random_state=42
+    )
+    embedding = reducer.fit_transform(X)
+
+    print("plot")
+    plt.figure(figsize=(8, 6))
+
+    # Color by speaker
+    scatter = plt.scatter(
+        embedding[:, 0],
+        embedding[:, 1],
+        c=labels,
+        s=20,
+        cmap="tab10"   # contains 10 qualitative colors, enough for 8 speakers
+    )
+
+    # Legend
+    handles = []
+    for spk in unique_speakers:
+        handles.append( plt.Line2D([0], [0], marker="o", color="w", label=spk, markerfacecolor=plt.cm.tab10(speaker_to_int[spk]/10), markersize=8) )
+    plt.legend(title="Speaker ID", handles=handles)
+
+    plt.xlabel("UMAP-1")
+    plt.ylabel("UMAP-2")
+    plt.title("UMAP Projection of Vector Data by Speaker")
+    plt.tight_layout()
+    plt.show()
