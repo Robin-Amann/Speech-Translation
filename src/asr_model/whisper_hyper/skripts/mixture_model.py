@@ -1,6 +1,6 @@
 from sklearn.mixture import GaussianMixture, BayesianGaussianMixture
 import numpy as np
-import code_files.magic_strings as magic_strings
+import src.magic_strings as magic_strings
 import torch
 from transformers import WhisperFeatureExtractor, WhisperModel
 from numpy.typing import NDArray

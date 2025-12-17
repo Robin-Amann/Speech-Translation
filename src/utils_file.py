@@ -1,9 +1,10 @@
 import torchaudio
 import os
-from pydoc import locate 
+import ast
+from pathlib import Path
+from torch import Tensor
 
-    
-def read_audio(file_path, sample_rate) :
+def read_audio(file_path: str | Path, sample_rate: int) :
     if not os.path.isfile(file_path) :
         print('audiofile does not exist', file_path)
         return []
@@ -16,9 +17,9 @@ def read_audio(file_path, sample_rate) :
     return waveform
 
     
-def write_audio(file_path, waveform, sample_rate) :
+def write_audio(file_path: str | Path, waveform: Tensor, sample_rate: int) :
     if waveform.dim() == 1 :
-        waveform = waveform[None, :]
+        waveform = waveform[None, :]     # [a, b, c] -> [[a, b, c]] 
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     torchaudio.save(file_path, waveform, sample_rate)
 
@@ -30,14 +31,13 @@ def read_file(file_path) :
     return content
 
 
-def write_file(file_path, content, mode='w') :
+def write_file(file_path: str | Path, content: str, mode='w') :
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     with open(file_path, mode, encoding='utf8') as file :
         file.write(content)
 
 
-import ast
-def read_dict(file_path, seperator='<|>') :
+def read_dict(file_path: str | Path, seperator='<|>') :
     """reads a list of dicts from a file. all dicts need to have the same keys.\\
     key1<|>...<|>keyN\\
     type1<|>...<|>typeN\\
@@ -68,9 +68,8 @@ def read_dict(file_path, seperator='<|>') :
     return dictionary
 
 
-def write_dict(file_path, data_p: list[dict], separator='<|>') :
+def write_dict(file_path: str | Path, data_p: list[dict], separator='<|>') :
     """writes a list of dicts to a file. all dicts need to have the same keys.\\
-    this does not work for nested typs in the dicts (list, dict, ...)\\
     key1<|>...<|>keyN\\
     type1<|>...<|>typeN\\
     values of dict 1\\

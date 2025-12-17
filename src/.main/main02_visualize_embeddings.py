@@ -1,9 +1,9 @@
 ### generate embeddings ###
-import code_files.utils as utils
-import code_files.utils_file as utils_file
-import code_files.magic_strings as magic_strings
-import code_files.asr_model.data_preperation.torgo as torgo
-from code_files.asr_model.whisper_hyper.skripts.mixture_model import generate_embeddings
+import src.utils as utils
+import src.utils_file as utils_file
+import src.magic_strings as magic_strings
+import src.asr_model.data_preperation.torgo as torgo
+from src.asr_model.whisper_hyper.skripts.mixture_model import generate_embeddings
 
 print("load data")
 dataset = utils_file.read_dict(magic_strings.TORGO_PATH_LOCAL / "torgo.txt")
@@ -19,9 +19,9 @@ utils_file.write_dict(magic_strings.TORGO_PATH_LOCAL / "torgo.txt", dataset)
 
 
 ### visualize embeddings ###
-import code_files.magic_strings as magic_strings
-import code_files.asr_model.data_preperation.torgo as torgo
-from code_files.asr_model.whisper_hyper.skripts.mixture_model import visualize_embeddings
+import src.magic_strings as magic_strings
+import src.asr_model.data_preperation.torgo as torgo
+from src.asr_model.whisper_hyper.skripts.mixture_model import visualize_embeddings
 
 dataset = utils_file.read_dict(magic_strings.TORGO_PATH_LOCAL / "torgo.txt")
 speaker_ids, embeddings = map(list, zip(*[(entry["speaker_id"], entry["embedding"]) for entry in dataset]))
@@ -29,11 +29,11 @@ visualize_embeddings(speaker_ids, embeddings)
 
 
 ### fit GMM ###
-import code_files.utils as utils
-import code_files.asr_model.data_preperation.torgo as torgo
-import code_files.magic_strings as magic_strings
-from code_files.asr_model.whisper_hyper.skripts.mixture_model import fit_BGMM
-from code_files.asr_model.whisper_hyper.skripts.mixture_model import visualize_embeddings
+import src.utils as utils
+import src.asr_model.data_preperation.torgo as torgo
+import src.magic_strings as magic_strings
+from src.asr_model.whisper_hyper.skripts.mixture_model import fit_BGMM
+from src.asr_model.whisper_hyper.skripts.mixture_model import visualize_embeddings
 import joblib
 import os
 import numpy as np
@@ -65,61 +65,14 @@ min_dist = 0.2
 visualize_embeddings(labels.tolist(), embeddings, n_neighbors=n_neighbors, min_dist=min_dist, save_dir="./results/embeddings", filename=f"UMAP_{n_neighbors}_{min_dist}.png")
 
 
-
-### group data based on speaker and cohort ###
-import code_files.utils as utils
-import code_files.magic_strings as magic_strings
-import code_files.asr_model.data_preperation.torgo as torgo
-import joblib
-import numpy as np
-
-print("read data")
-dataset = utils_file.read_dict(magic_strings.TORGO_PATH_LOCAL / "torgo.txt")
-
-embeddings = [ entry["embedding"] for entry in dataset ]
-embeddings_array = np.asarray(embeddings)
-
-loaded_model = joblib.load("./data/mixture_models/bgmm.joblib")
-labels = loaded_model.predict(embeddings_array)
-
-for entry, label in zip(dataset, labels.tolist()) :
-    entry["cohort"] = label
-
-def group_files(dataset: list[dict], split_keys: list[str]) :
-    if len(split_keys) == 0 :
-        return dataset
-    key, remaining_keys = split_keys[0], split_keys[1:]
-
-    groups: dict[str, list[dict]] = dict()
-    for entry in dataset :
-        k = entry[key]
-        if k not in groups :
-            groups[k] = []
-        groups[k].append(entry)
-    
-    for k, values in groups.items() :
-        groups[k] = group_files(values, remaining_keys)
-    return groups
-
-
-groups = group_files(dataset, ["cohort", "speaker_id"])
-for speaker_id in groups :
-    for cohort in groups[speaker_id] :
-        print(speaker_id, cohort, len(groups[speaker_id][cohort]))
-
-# utils.split_and_save_dataset(dataset, torgo.save_file, ["speaker_id", "cohort"])
-
-
-
-
 ### test how the embedding space groups embeddings. test for
 # - speaker
 # - words
 # - source
 
-import code_files.utils as utils
-import code_files.magic_strings as magic_strings
-import code_files.asr_model.data_preperation.torgo as torgo
+import src.utils as utils
+import src.magic_strings as magic_strings
+import src.asr_model.data_preperation.torgo as torgo
 from collections import Counter
 
 dataset = utils_file.read_dict(magic_strings.TORGO_PATH_LOCAL / "torgo.txt")
@@ -146,7 +99,7 @@ print(count_count)
 # {1: 46, 2: 19, 3: 11, 4: 3, 5: 5, 6: 20, 7: 36, 8: 12, 9: 7, 10: 5, 11: 1}
 
 # give each embedding corresponding to a certain prompt the label 1 else 0
-from code_files.asr_model.whisper_hyper.skripts.mixture_model import visualize_embeddings
+from src.asr_model.whisper_hyper.skripts.mixture_model import visualize_embeddings
 
 selected_prompts = [ 
     "yet he still thinks as swiftly as ever.", 

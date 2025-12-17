@@ -1,4 +1,4 @@
-import code_files.magic_strings as magic_strings
+import src.magic_strings as magic_strings
 from pathlib import Path
 import os
 import shutil

@@ -1,7 +1,7 @@
 ### preprocess torgo ###
-import code_files.utils_file as utils_file
-import code_files.magic_strings as magic_strings
-import code_files.asr_model.data_preperation.torgo as torgo
+import src.utils_file as utils_file
+import src.magic_strings as magic_strings
+import src.asr_model.data_preperation.torgo as torgo
 
 dataset = torgo.load_original()
 # prompt file has no wav file (data\datasets\TORGO\everything\F\F03\Session2\prompts\0117.txt)
