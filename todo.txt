@@ -1,32 +1,32 @@
 
-# data preperation
-inspect data
-- how many utterances per speaker
+[x] data preperation
+- [x] inspect data
+- [x] how many utterances per speaker
 
-dataset to embeddings
-- store embeddings
-- visualize cohorts (visualize for speaker id to see if there is overlap (should be))
-- generate labels for data using the GMM
-(- see how much silence is in each datapoint and if that influences the embeddings)
+[x] dataset to embeddings
+- [x] store embeddings
+- [x] visualize cohorts (visualize for speaker id to see if there is overlap (should be))
+- [x] generate labels for data using the GMM
+- [ ] see how much silence is in each datapoint and if that influences the embeddings
 
 
-split datast
-- split 80 / 10 / 10 (train / dev / test) for each speaker
-- results in same split for cohort and overall
+[x] split datast
+- [x] split 80 / 10 / 10 (train / dev / test) for each speaker
+- [x] results in same split for cohort and overall
 
-run whisper on data to see if there are easier and more difficult speakers
+[x] run whisper on data to see if there are easier and more difficult speakers
 
-train whisper Baseline
-- hypermodel like in the paper (train on subsets of cohorts to see how it generalizes to other cohorts)
-- lora adapter specific for one speaker (on one cohort and then one speaker in that cohort, expected that results for different speaker in same cohort is skewed since model saw those speakers in training)
-  - train cohort -> train speaker
-  - once for each cohort if Possible
+[x] train whisper Baseline
+- [x] lora adapter specific for one speaker (on one cohort and then one speaker in that cohort, expected that results for different speaker in same cohort is skewed since model saw those speakers in training)
+- [ ] hypermodel like in the paper (train on subsets of cohorts to see how it generalizes to other cohorts)
+  - [ ] train cohort -> train speaker
+  - [ ] once for each cohort if Possible
 
-train gating network
-trait experts
-train both jointly
+[ ] train gating network
+[ ] trait experts
+[ ] train both jointly
 
-evaluation
+[ ] evaluation
                           cohort A                cohort B                cohort C
                     speaker 1   speaker 2   speaker 3   speaker 4   speaker 5   speaker 6
 #utterances             n           n           n           n           n           n
