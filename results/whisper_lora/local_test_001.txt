@@ -1,0 +1,63 @@
+DatasetDict({
+    train: Dataset({
+        features: ['input_features', 'labels'],
+        num_rows: 2
+    })
+    dev: Dataset({
+        features: ['input_features', 'labels'],
+        num_rows: 4
+    })
+    test: Dataset({
+        features: ['input_features', 'labels'],
+        num_rows: 4
+    })
+})
+
+trainable params: 819,200 || all params: 1,544,309,760 || trainable%: 0.0530
+
+{'loss': 2.6788, 'grad_norm': 1.1762207746505737, 'learning_rate': 0.0, 'epoch': 1.0}
+{'loss': 2.6788, 'grad_norm': 1.1706939935684204, 'learning_rate': 5e-06, 'epoch': 2.0}                                                                                                                                                                                                                  
+
+20%
+{'eval_validation_loss': 2.181748151779175, 'eval_validation_wer': 61.76470588235294, 'eval_validation_runtime': 53.033, 'eval_validation_samples_per_second': 0.075, 'eval_validation_steps_per_second': 0.019, 'epoch': 2.0}
+{'eval_test_loss': 1.972386121749878, 'eval_test_wer': 70.0, 'eval_test_runtime': 53.8201, 'eval_test_samples_per_second': 0.074, 'eval_test_steps_per_second': 0.019, 'epoch': 2.0}
+20%
+{'loss': 2.6772, 'grad_norm': 1.186811089515686, 'learning_rate': 1e-05, 'epoch': 3.0}
+{'loss': 2.674, 'grad_norm': 1.1755679845809937, 'learning_rate': 8.750000000000001e-06, 'epoch': 4.0}                                                                                                                                                                                                   
+{'eval_validation_loss': 2.180243968963623, 'eval_validation_wer': 61.76470588235294, 'eval_validation_runtime': 56.1703, 'eval_validation_samples_per_second': 0.071, 'eval_validation_steps_per_second': 0.018, 'epoch': 4.0}                                                                          
+{'eval_test_loss': 1.9723316431045532, 'eval_test_wer': 70.0, 'eval_test_runtime': 68.2787, 'eval_test_samples_per_second': 0.059, 'eval_test_steps_per_second': 0.015, 'epoch': 4.0}
+
+40%
+{'loss': 2.6712, 'grad_norm': 1.1745587587356567, 'learning_rate': 7.500000000000001e-06, 'epoch': 5.0}
+{'loss': 2.6686, 'grad_norm': 1.198473334312439, 'learning_rate': 6.25e-06, 'epoch': 6.0}                                                                                                                                                                                                                
+{'eval_validation_loss': 2.1791281700134277, 'eval_validation_wer': 61.76470588235294, 'eval_validation_runtime': 64.4156, 'eval_validation_samples_per_second': 0.062, 'eval_validation_steps_per_second': 0.016, 'epoch': 6.0}                                                                         
+{'eval_test_loss': 1.9722909927368164, 'eval_test_wer': 70.0, 'eval_test_runtime': 68.1423, 'eval_test_samples_per_second': 0.059, 'eval_test_steps_per_second': 0.015, 'epoch': 6.0}
+
+60%
+{'loss': 2.6669, 'grad_norm': 1.1748515367507935, 'learning_rate': 5e-06, 'epoch': 7.0}
+{'loss': 2.6651, 'grad_norm': 1.190970778465271, 'learning_rate': 3.7500000000000005e-06, 'epoch': 8.0}                                                                                                                                                                                                  
+{'eval_validation_loss': 2.1784095764160156, 'eval_validation_wer': 61.76470588235294, 'eval_validation_runtime': 60.1929, 'eval_validation_samples_per_second': 0.066, 'eval_validation_steps_per_second': 0.017, 'epoch': 8.0}                                                                         
+{'eval_test_loss': 1.9722604751586914, 'eval_test_wer': 70.0, 'eval_test_runtime': 50.8239, 'eval_test_samples_per_second': 0.079, 'eval_test_steps_per_second': 0.02, 'epoch': 8.0}
+
+80%
+{'loss': 2.6639, 'grad_norm': 1.1885108947753906, 'learning_rate': 2.5e-06, 'epoch': 9.0}
+{'loss': 2.6629, 'grad_norm': 1.1984504461288452, 'learning_rate': 1.25e-06, 'epoch': 10.0}                                                                                                                                                                                                              
+{'eval_validation_loss': 2.1780967712402344, 'eval_validation_wer': 61.76470588235294, 'eval_validation_runtime': 47.4082, 'eval_validation_samples_per_second': 0.084, 'eval_validation_steps_per_second': 0.021, 'epoch': 10.0}                                                                        
+{'eval_test_loss': 1.9722471237182617, 'eval_test_wer': 70.0, 'eval_test_runtime': 49.7303, 'eval_test_samples_per_second': 0.08, 'eval_test_steps_per_second': 0.02, 'epoch': 10.0}
+{'train_runtime': 764.8468, 'train_samples_per_second': 0.052, 'train_steps_per_second': 0.013, 'train_loss': 2.6707409620285034, 'epoch': 10.0}
+100%
+
+
+| Epoch | Loss   | Grad Norm | Learning Rate | Val Loss | Val WER (%) | Val Runtime (s) | Val Samples/s | Val Steps/s | Test Loss | Test WER (%) | Test Runtime (s) | Test Samples/s | Test Steps/s |
+| ----- | ------ | --------- | ------------- | -------- | ----------- | --------------- | ------------- | ----------- | --------- | ------------ | ---------------- | -------------- | ------------ |
+| 1     | 2.6788 | 1.1762    | 0.0           | -        | -           | -               | -             | -           | -         | -            | -                | -              | -            |
+| 2     | 2.6788 | 1.1707    | 5e-06         | 2.1817   | 61.76       | 53.033          | 0.075         | 0.019       | 1.9724    | 70.0         | 53.8201          | 0.074          | 0.019        |
+| 3     | 2.6772 | 1.1868    | 1e-05         | -        | -           | -               | -             | -           | -         | -            | -                | -              | -            |
+| 4     | 2.6740 | 1.1756    | 8.75e-06      | 2.1802   | 61.76       | 56.1703         | 0.071         | 0.018       | 1.9723    | 70.0         | 68.2787          | 0.059          | 0.015        |
+| 5     | 2.6712 | 1.1746    | 7.5e-06       | -        | -           | -               | -             | -           | -         | -            | -                | -              | -            |
+| 6     | 2.6686 | 1.1985    | 6.25e-06      | 2.1791   | 61.76       | 64.4156         | 0.062         | 0.016       | 1.9723    | 70.0         | 68.1423          | 0.059          | 0.015        |
+| 7     | 2.6669 | 1.1749    | 5e-06         | -        | -           | -               | -             | -           | -         | -            | -                | -              | -            |
+| 8     | 2.6651 | 1.1910    | 3.75e-06      | 2.1784   | 61.76       | 60.1929         | 0.066         | 0.017       | 1.9723    | 70.0         | 50.8239          | 0.079          | 0.020        |
+| 9     | 2.6639 | 1.1885    | 2.5e-06       | -        | -           | -               | -             | -           | -         | -            | -                | -              | -            |
+| 10    | 2.6629 | 1.1985    | 1.25e-06      | 2.1781   | 61.76       | 47.4082         | 0.084         | 0.021       | 1.9722    | 70.0         | 49.7303          | 0.080          | 0.020        |
+

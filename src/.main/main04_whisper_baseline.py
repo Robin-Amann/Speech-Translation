@@ -6,3 +6,6 @@ data = [
     ]
 
 result = inference(data)
+
+
+

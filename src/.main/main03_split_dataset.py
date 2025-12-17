@@ -8,7 +8,6 @@
 # this code below just devides the data by cohort and speaker and sees how much data of what we have
 
 ### group data based on speaker and cohort ###
-import src.utils as utils
 import src.utils_file as utils_file
 import src.magic_strings as magic_strings
 import src.asr_model.data_preperation.torgo as torgo

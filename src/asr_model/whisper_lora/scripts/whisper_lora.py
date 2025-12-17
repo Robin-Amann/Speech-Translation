@@ -1,16 +1,19 @@
 # https://huggingface.co/blog/fine-tune-whisper
 
 # !pip install --upgrade --quiet pip
-# !pip install --upgrade --quiet datasets[audio] transformers accelerate evaluate jiwer tensorboard gradio
+# !pip install --upgrade --quiet datasets[audio] transformers accelerate evaluate jiwer tensorboard
 
 import torch
 from typing import Any, Dict, List, Union
 from dataclasses import dataclass
-from datasets import DatasetDict, Dataset, Audio
+from datasets import DatasetDict, Audio
 from transformers import WhisperFeatureExtractor, WhisperTokenizer, WhisperProcessor, WhisperForConditionalGeneration, Seq2SeqTrainingArguments, pipeline
 from peft import PeftModel, LoraConfig, get_peft_model
 import evaluate
 from src.magic_strings import WHISPER_V3_MODEL_NAME, WHISPER_V3_LORA_CHECKPOINT_DIR, WHISPER_V3_CHECKPOINT_DIR
+from src.training_args import whisper_local_steps, whisper_cluster_steps
+from transformers import Seq2SeqTrainer
+
 
 ### Define a Data Collator
 # see the blogpost
@@ -37,9 +40,11 @@ class DataCollatorSpeechSeq2SeqWithPadding:
         # cut bos token here as it's append later anyways
         if (labels[:, 0] == self.decoder_start_token_id).all().cpu().item():
             labels = labels[:, 1:]
+            labels_batch.attention_mask = labels_batch.attention_mask[:, 1:]    # (*1)
 
         batch["labels"] = labels
-
+        batch["decoder_attention_mask"] = labels_batch.attention_mask           # (*2)
+        
         return batch
     
 
@@ -47,7 +52,7 @@ def prepare_data(dataset: DatasetDict) :
     """insert a dataset dict with a train / dev / test split.\\
     each split needs to have the same columns and at least\\
     - "filepath": contains the filepath to a audiofile\\
-    - "words": the label corresponding to the audiofile
+    - "text": the label corresponding to the audiofile
     """
 
     # Prepare Feature Extractor, Tokenizer and Data
@@ -73,7 +78,7 @@ def prepare_data(dataset: DatasetDict) :
         batch["input_features"] = feature_extractor(audio["array"], sampling_rate=audio["sampling_rate"]).input_features[0]
 
         # 3. We encode the transcriptions to label ids through the use of the tokenizer.
-        batch["labels"] = tokenizer(batch["sentence"]).input_ids
+        batch["labels"] = tokenizer(batch["text"]).input_ids
         return batch
 
     # remove_columns removes all existing columns from the dataset. this encures that only "audio", "input_features" and "labels" remain
@@ -81,7 +86,7 @@ def prepare_data(dataset: DatasetDict) :
     return dataset
     
 
-def finetune_lora(dataset) :
+def finetune_lora(dataset: DatasetDict, local=True) :
 
     ### Load a Pre-Trained Checkpoint
     model = WhisperForConditionalGeneration.from_pretrained(WHISPER_V3_MODEL_NAME, cache_dir=WHISPER_V3_CHECKPOINT_DIR)
@@ -96,14 +101,15 @@ def finetune_lora(dataset) :
         lora_dropout=0.05,          # dropout during learning
         target_modules=["fc1"],     # Important: matches the module suffix
         bias="none",                # none | lora_only | all
-        task_type="SEQ_2_SEQ_LM"    # "SEQ_2_SEQ_LM" | "CAUSAL_LM" | "TOKEN_CLS" | "QUESTION_ANS" | "FEATURE_EXTRACTION" | "IMAGE_CLASSIFICATION" (Whisper is a sequence-to-sequence language model)
+        # task_type="SEQ_2_SEQ_LM"  # (*3) # "SEQ_2_SEQ_LM" | "CAUSAL_LM" | "TOKEN_CLS" | "QUESTION_ANS" | "FEATURE_EXTRACTION" | "IMAGE_CLASSIFICATION" (Whisper is a sequence-to-sequence language model)
     )
+    model.enable_input_require_grads() # (*2)
     lora_model = get_peft_model(model, config)
     lora_model.print_trainable_parameters()
     lora_model.save_pretrained(WHISPER_V3_LORA_CHECKPOINT_DIR) # initial save before training
 
     processor = WhisperProcessor.from_pretrained(WHISPER_V3_MODEL_NAME, cache_dir=WHISPER_V3_CHECKPOINT_DIR, language="english", task="transcribe")
-
+    
     data_collator = DataCollatorSpeechSeq2SeqWithPadding(
         processor=processor,
         decoder_start_token_id=lora_model.config.decoder_start_token_id,
@@ -131,60 +137,32 @@ def finetune_lora(dataset) :
 
         return {"wer": wer}
 
-    # TODO: adjust training arguments
-    training_args = Seq2SeqTrainingArguments(
-        output_dir=WHISPER_V3_LORA_CHECKPOINT_DIR,  # change to a repo name of your choice
-        per_device_train_batch_size=16,
-        gradient_accumulation_steps=1,  # increase by 2x for every 2x decrease in batch size
-        learning_rate=1e-5,
-        warmup_steps=500,
-        max_steps=4000,
-        gradient_checkpointing=True,
-        fp16=True,
-        evaluation_strategy="steps",
-        per_device_eval_batch_size=8,
-        predict_with_generate=True,
-        generation_max_length=225,
-        save_steps=1000,
-        eval_steps=1000,
-        logging_steps=25,
-        report_to=["tensorboard"],
-        load_best_model_at_end=True,
-        metric_for_best_model="wer",
-        greater_is_better=False,
-        push_to_hub=False,
-    )
-
-    from transformers import Seq2SeqTrainer
-
+    if local :
+        training_args = whisper_local_steps(WHISPER_V3_LORA_CHECKPOINT_DIR)
+    else :
+        training_args = whisper_cluster_steps(WHISPER_V3_LORA_CHECKPOINT_DIR)
+        
     trainer = Seq2SeqTrainer(
         args=training_args,
         model=lora_model,
         train_dataset=dataset["train"],
         eval_dataset={"validation": dataset["dev"], "test": dataset["test"]},
-        processing_class=processor.tokenizer, # i changed that
         data_collator=data_collator,
+        tokenizer=processor.feature_extractor,
         compute_metrics=compute_metrics,
     )
 
     trainer.train()
 
+# warning: 'pin_memory' argument is set as true but no accelerator is found, then device pinned memory won't be used.
+# `use_cache = True` is incompatible with gradient checkpointing. Setting `use_cache = False`...
 
 def inference() :
+    # load checkpoint
+    # base = WhisperForConditionalGeneration.from_pretrained(WHISPER_V3_MODEL_NAME, cache_dir=WHISPER_V3_CHECKPOINT_DIR)
+    # lora_model = PeftModel.from_pretrained(base, WHISPER_V3_LORA_CHECKPOINT_DIR + "/checkpoint-n")
     pass
     
-
-# # get model
-# base = WhisperForConditionalGeneration.from_pretrained(
-#     WHISPER_V3_MODEL_NAME,
-#     cache_dir=WHISPER_V3_CHECKPOINT_DIR
-# )
-# lora_loaded = PeftModel.from_pretrained(base, WHISPER_V3_LORA_CHECKPOINT_DIR)
-
-
-
-
-
 # Create the LoRA configuration
 # W = W + alpha / r * BA
 # standard initialization
@@ -206,3 +184,29 @@ def inference() :
 #     lora_embedding_A (for embeddings, useless for me)
 #     lora_embedding_B (for embeddings, useless for me)
 #     lora_magnitude_vector (for training)
+
+
+
+# (*1)
+# - error: 
+#   The attention mask is not set and cannot be inferred from input because pad token is 
+#   same as eos token. As a consequence, you may observe unexpected behavior. Please pass your 
+#   input's `attention_mask` to obtain reliable results.
+# - problem: 
+#   - Whisper’s tokenizer uses the same token ID for pad_token and eos_token
+#   - The model cannot infer padding positions from token IDs alone
+#   - The transformer backend cannot construct an attention mask implicitly
+# - solution
+#   - Pass the decoder attention mask explicitly to the model.
+#   - The decoder now receives an explicit binary mask
+#   - Padding positions are unambiguously ignored
+#   - The model no longer attempts to infer padding from token identity
+#   - Numerical behavior becomes deterministic and stable
+
+# (*2)
+# error: RuntimeError: element 0 of tensors does not require grad and does not have a grad_fn
+# solution: https://github.com/huggingface/peft/issues/137
+
+# (*3)
+# problem: WhisperForConditionalGeneration.forward() got an unexpected keyword argument 'input_ids'
+# solution: https://github.com/huggingface/peft/issues/1988
