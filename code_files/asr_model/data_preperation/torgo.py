@@ -1,11 +1,21 @@
-from code_files.magic_strings import TORGO_ORIGINAL_PATH_LOCAL, TORGO_PATH_LOCAL
+import code_files.magic_strings as magic_strings
 from pathlib import Path
 import os
 import shutil
+from pathlib import Path
 
+# file content:
+# speaker_id
+# session
+# id
+# prompt
+# wav_file_path
+# (embedding)
+# (cohort)
 
-def read_original_torgo_files():
-    root = Path(TORGO_ORIGINAL_PATH_LOCAL)
+# read_original_torgo_files
+def load_original():
+    root = magic_strings.TORGO_PATH_LOCAL / "original"
     samples = []
 
     # iterate over gender folders (F, M)
@@ -21,8 +31,10 @@ def read_original_torgo_files():
                 # find the audio directory in this session
                 if os.path.isdir(session_dir / "wav_headMic") :
                     audio_dir = session_dir / "wav_headMic"
+                    source = "headMic"
                 elif os.path.isdir(session_dir / "wav_arrayMic") :
                     audio_dir = session_dir / "wav_arrayMic"
+                    source = "arrayMic"
                 else :
                     raise ValueError(f"no wav directory ({session_dir})")
 
@@ -41,14 +53,16 @@ def read_original_torgo_files():
 
                     samples.append({
                         "speaker_id": speaker_dir.name,
-                        "session": session_dir.name,
+                        "session": session_dir.name.replace("_", "and"),
+                        "id": stem,
                         "prompt": prompt,
-                        "wav_file_path": str(wav_file)
+                        "wav_file_path": str(wav_file),
+                        "source": source
                     })
     return samples
 
 
-def filter_torgo(dataset: list[dict[str, str]]) :
+def filter_original(dataset: list[dict[str, str]]) :
     sentences = []
     for entry in dataset :
         # prompt is image
@@ -78,7 +92,7 @@ def filter_torgo(dataset: list[dict[str, str]]) :
     return sentences
 
 
-def analyze_torgo(torgo: list[dict[str, str]]) :
+def analyze_original(torgo: list[dict[str, str]]) :
     from collections import defaultdict
 
     grouped : dict[str, list] = {}
@@ -95,14 +109,48 @@ def analyze_torgo(torgo: list[dict[str, str]]) :
     print("sum".ljust(7), len(torgo))
 
 
-def save(torgo: list[dict[str, str]]) :
-    target_dir = Path(TORGO_PATH_LOCAL)
+def save_file(split, entry) :
+    """use together with utils.split_and_save_dataset"""
+    cohort = entry["cohort"] if "cohort" in entry else ""
+    if split == None :
+        split = ""
+    target_dir = Path(magic_strings.TORGO_PATH_LOCAL / cohort / entry["speaker_id"] / split)
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    for entry in torgo :
-        id = Path(entry["wav_file_path"]).stem
-        filestem = f"{entry["speaker_id"]}_{entry["session"].replace("_", "and")}_{id}"
+    id = Path(entry["wav_file_path"]).stem.split("_")[-1]
+    stem = f"{entry["speaker_id"]}_{entry["session"]}_{id}"
 
+    (target_dir / f"{stem}.txt").write_text(entry["prompt"])
+    if not (target_dir / f"{stem}.wav").is_file() :
+        shutil.copy2(entry["wav_file_path"], (target_dir / f"{stem}.wav"))
 
-        (target_dir / f"{filestem}.txt").write_text(entry["prompt"])
-        shutil.copy2(entry["wav_file_path"], (target_dir / f"{filestem}.wav"))
+    if "cohort" in entry :
+        (target_dir / f"{stem}.ch").write_text(entry["cohort"])
+    if "embedding" in entry :
+        (target_dir / f"{stem}.emb").write_text(str(entry["embedding"])[1:-1]) # remove [ and ]
+        
+
+def load_file(path: Path) :
+    if path.suffix != ".txt" :
+        return None
+    
+    speaker_id, session, id = path.stem.split("_")
+    split = path.parent.name
+    if split not in ["train", "dev", "test"] :
+        split = None
+
+    entry = {
+        "speaker_id": speaker_id,
+        "session": session,
+        "id": id,
+        "prompt": path.read_text(encoding="utf-8"),
+        "wav_file_path": str(path.with_suffix(".wav"))
+    }
+
+    if path.with_suffix(".ch").is_file() :
+        entry["cohort"] = path.with_suffix(".ch").read_text(encoding="utf-8")
+    if path.with_suffix(".emb").is_file() :
+        emb = path.with_suffix(".emb").read_text(encoding="utf-8").strip().split(", ")
+        entry["embedding"] = [ float(x) for x in emb ]
+        
+    return split, entry

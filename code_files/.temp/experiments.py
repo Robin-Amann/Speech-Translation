@@ -20,8 +20,7 @@ def print_tree(path: str, prefix: str = ""):
 # print_tree("/path/to/directory")
 
 
-print_tree("./asr_model/checkpoints")
-
+# print_tree("./asr_model/checkpoints")
 # checkpoints
 # ├── .locks                                        Contains lock files used to prevent parallel downloads from corrupting the cache     
 # │   └── models--openai--whisper-small                 
@@ -39,3 +38,13 @@ print_tree("./asr_model/checkpoints")
 #             ├── config.json
 #             ├── generation_config.json
 #             └── model.safetensors
+
+
+from pathlib import Path
+
+p = Path("./x/y/z/")
+
+print(p)
+
+p = p / "" / "a"
+print(p)

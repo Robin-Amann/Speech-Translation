@@ -1,0 +1,6 @@
+based on the umap results i will take 
+n_neighbors = 10 and
+min_dist = 0.2 as parameters
+
+
+based on 5 and 0.2 maybe 8 cohorts can be good

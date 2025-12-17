@@ -1,7 +1,4 @@
-/data/datasets/
-/data/checkpoints/whisper_small/
-/data/checkpoints/whisper_v3/models--openai--whisper-large-v3/
-/code/.temp/
+/data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

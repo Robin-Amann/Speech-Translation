@@ -1,10 +1,8 @@
-
+from pathlib import Path
 # local paths
-TORGO_ORIGINAL_PATH_LOCAL = "./data/datasets/TORGO/original"
-TORGO_PATH_LOCAL = "./data/datasets/TORGO/final"
-TORGO_EMBEDDINGS_PATH_LOCAL = "./data/datasets/TORGO/embeddings"
-# cluster paths
+TORGO_PATH_LOCAL = Path("./data/datasets/TORGO")
 
+# cluster paths
 
 
 # other

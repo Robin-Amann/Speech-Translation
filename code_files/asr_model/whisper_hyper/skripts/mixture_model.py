@@ -10,36 +10,35 @@ import torch
 import torchaudio
 import umap
 import matplotlib.pyplot as plt
-from pathlib import Path
+import os
 
 type CovarianceType = Literal['full', 'tied', 'diag', 'spherical']
 
-def fit_GMM(embeddings: list[list[int]], n_components: int, covariance_type: CovarianceType='full') :
+def fit_GMM(embeddings: list[list[float]], n_components: int, covariance_type: CovarianceType='full') :
 
     embeddings_array = np.asarray(embeddings)
 
     gmm = GaussianMixture(n_components=n_components, covariance_type=covariance_type, random_state=42)
     gmm.fit(embeddings_array)
 
-    labels = gmm.predict(embeddings_array)
-    return gmm, labels
+    return gmm
 
 
-def fit_DPGMM(embeddings: list[list[int]], max_components=100, covariance_type: CovarianceType='full'):
+def fit_BGMM(embeddings: list[list[float]], max_components=100, covariance_type: CovarianceType='full', weight_concentration_prior=1.0):
     embeddings_array: NDArray = np.asarray(embeddings)
 
     model = BayesianGaussianMixture(
         n_components=max_components,
         covariance_type=covariance_type,
         weight_concentration_prior_type='dirichlet_process',
+        weight_concentration_prior=weight_concentration_prior,   # higher values = softer predictions
         max_iter=500,
-        init_params='kmeans'
+        init_params='kmeans' # can be "random"
     )
 
     model.fit(embeddings_array)    
-    labels = model.predict(embeddings_array)
     
-    return model, labels
+    return model
 
 
 def generate_embeddings(dataset: Dataset, sampling_rate: int=16000, batch_size=8) :
@@ -94,44 +93,76 @@ def generate_embeddings(dataset: Dataset, sampling_rate: int=16000, batch_size=8
 
     return dataset
 
+import colorsys
 
-def visualize_embeddings(dataset: list[tuple[str, list[float]]], n_neighbors=15, min_dist=0.1, metric="euclidean") :
-    data, speaker_ids = list(zip(*dataset))    
-    X = np.array(data)
+def visualize_embeddings(
+    labels: list[str],
+    embeddings: list[list[float]],
+    n_neighbors: int = 10,
+    min_dist: float = 0.2,
+    metric: str = "euclidean",
+    save_dir: str | None = None,
+    filename: str = None, 
+    title: str="UMAP Projection",
+    show: bool = True,
+):
+    X = np.array(embeddings)
 
-    unique_speakers = sorted(set(speaker_ids))
-    speaker_to_int = {spk: i for i, spk in enumerate(unique_speakers)}
-    labels = np.array([speaker_to_int[s] for s in speaker_ids])
+    unique_labels = sorted(set(labels))
+    n_labels = len(unique_labels)
+
+    label_to_int = {lbl: i for i, lbl in enumerate(unique_labels)}
+    label_indices = np.array([label_to_int[lbl] for lbl in labels])
+
+    # Random color assignment (one color per label)
+    hues = np.linspace(0.0, 1.0, n_labels, endpoint=False)
+    colors = np.array([ colorsys.hsv_to_rgb(h, 0.75, 0.95) for h in hues ])
 
     print("transform data")
     reducer = umap.UMAP(
         n_neighbors=n_neighbors,
         min_dist=min_dist,
         metric=metric,
-        random_state=42
+        random_state=42,
     )
     embedding = reducer.fit_transform(X)
 
     print("plot")
     plt.figure(figsize=(8, 6))
 
-    # Color by speaker
-    scatter = plt.scatter(
+    point_colors = colors[label_indices]
+
+    plt.scatter(
         embedding[:, 0],
         embedding[:, 1],
-        c=labels,
+        c=point_colors,
         s=20,
-        cmap="tab10"   # contains 10 qualitative colors, enough for 8 speakers
     )
 
     # Legend
-    handles = []
-    for spk in unique_speakers:
-        handles.append( plt.Line2D([0], [0], marker="o", color="w", label=spk, markerfacecolor=plt.cm.tab10(speaker_to_int[spk]/10), markersize=8) )
+    handles = [
+        plt.Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="w",
+            label=lbl,
+            markerfacecolor=colors[label_to_int[lbl]],
+            markersize=8,
+        )
+        for lbl in unique_labels
+    ]
     plt.legend(title="Speaker ID", handles=handles)
 
     plt.xlabel("UMAP-1")
     plt.ylabel("UMAP-2")
-    plt.title("UMAP Projection of Vector Data by Speaker")
+    plt.title(title)
     plt.tight_layout()
-    plt.show()
+
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+        output_path = os.path.join(save_dir, filename)
+        plt.savefig(output_path, dpi=300, bbox_inches="tight")
+
+    if show:
+        plt.show()

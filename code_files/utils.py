@@ -1,7 +1,9 @@
 import os
-import code_files.magic_strings as magic_string
+import random
+from typing import Literal
 from pathlib import Path
-from datasets import Dataset
+type Split = Literal["train", "dev", "test"]
+from typing import Callable
 
 def print_directory_tree(root_path: str, prefix="", depth=0):
     if depth == 0 :
@@ -26,76 +28,101 @@ def print_directory_tree(root_path: str, prefix="", depth=0):
         print_directory_tree(os.path.join(root_path, entry), next_prefix, depth=depth+1)
 
 
-def print_all_prompts(root):
-    i = 0
-    for dirpath, dirnames, filenames in os.walk(root):
-        if os.path.basename(dirpath) == "prompts":
-            # print(f"\n=== Directory: {dirpath} ===\n")
-            for fname in sorted(filenames):
-                fpath = os.path.join(dirpath, fname)
-                try:
-                    with open(fpath, "r", encoding="utf-8") as f:
-                        content = f.read().strip()
-                    # print(f"--- {fname} ---")
-                    if "[" in content and "]" in content :
-                        continue
-                    if " " in content:
-                        print(fname.ljust(30), content)
-                        i += 1
-                    # print()
-                except Exception as e:
-                    print(f"Could not read {fpath}: {e}")
-    return i
+
+def save_dataset(
+        dataset: list[dict], 
+        save_file: Callable[[Split, dict], None], 
+        split_keys: list[str]  
+) :
+    if len(split_keys) == 0 :
+        for entry in dataset :
+            save_file(None, entry)
+        return
+
+    key, remaining_keys = split_keys[0], split_keys[1:]
+
+    groups: dict[str, list[dict]] = dict()
+    for entry in dataset :
+        k = entry[key]
+        if k not in groups :
+            groups[k] = []
+        groups[k].append(entry)
+    
+    for k, values in groups.items() :
+        save_dataset(values, save_file, remaining_keys)
 
 
-def load_torgo(local: bool=True) :
-    if local :
-        target_dir = Path(magic_string.TORGO_PATH_LOCAL)
+def load_dataset(target_dir: str | Path, load_file: Callable[str, tuple[Split, dict] | None], glob_regex="*") :
+    "returns either a dataset or a train, dev, test split"
+    target_dir = Path(target_dir)
+
+    dataset, train, dev, test = [], [], [], []
+    
+    for path in target_dir.rglob(glob_regex):   # recursive
+        if not path.is_file():
+            continue
+
+        result = load_file(path)
+        if type(result) == None :
+            continue
+
+        split, entry = result
+        if split == None :
+            dataset.append(entry)
+        elif split == "train" :
+            train.append(entry)
+        elif split == "dev" :
+            dev.append(entry)
+        else :
+            test.append(entry)
+    
+    if len(dataset) == 0 :
+        return train, dev, test
     else :
-        raise NotImplementedError("not implemented")
+        return dataset
 
-    dataset = []
-    for txt_file in target_dir.glob("*.txt"):  # only files ending with .txt, non-recursive
-        speaker_id, session, id = txt_file.stem.split("_")
-        prompt = txt_file.read_text(encoding="utf-8")
-        wav_file = txt_file.with_suffix(".wav")
-        dataset.append({
-            "speaker_id": speaker_id,
-            "session": session,
-            "id": id,
-            "prompt": prompt,
-            "wav_file_path": str(wav_file)
-        })
 
-    return Dataset.from_list(dataset)
+def split_and_save_dataset(
+        dataset: list[dict], 
+        save_file: Callable[[Split, dict], None], 
+        split_keys: list[str], 
+        train_dev_test: tuple[int, int, int]=(80, 10, 10), 
+        _seed: int=None
+) :
+    if sum(train_dev_test) == 1 :
+        train_dev_test = [ x * 100 for x in train_dev_test ]
+    assert sum(train_dev_test) == 100
 
-def save_embeddings(dataset: list[dict]) :
-    target_dir = Path(magic_string.TORGO_EMBEDDINGS_PATH_LOCAL)
-    target_dir.mkdir(parents=True, exist_ok=True)
+    if len(split_keys) == 0 :
+        shuffled = dataset.copy()   # only shallow copy since only the order is changed
+        if _seed != None :
+            random.seed(_seed)
+        random.shuffle(shuffled)
+        n = len(shuffled)
+        n1 = int(n * train_dev_test[0] / 100)
+        n2 = int(n * (train_dev_test[0] + train_dev_test[1]) / 100)
+        assert 0 < n1 < n2 < n, f"{dataset[0]["speaker_id"]}, {dataset[0]["cohort"]}"      # in each split it at least one entry
+        train = shuffled[:n1]
+        dev = shuffled[n1:n2]
+        test = shuffled[n2:]
+        for split, name in [(train, "train"), (dev, "dev"), (test, "test")] :
+            for entry in split :
+                save_file(name, entry)
+        return
 
+    key, remaining_keys = split_keys[0], split_keys[1:]
+
+    groups: dict[str, list[dict]] = dict()
     for entry in dataset :
-        if "embedding" not in entry :
-            continue
-        file = target_dir / f"{Path(entry["wav_file_path"]).stem}.txt"
-        file.write_text(str(entry["embedding"])[1:-1])
-
-
-def load_embeddings(dataset: list[dict]) :
-    target_dir = Path(magic_string.TORGO_EMBEDDINGS_PATH_LOCAL)
-
-    for entry in dataset :
-        if "embedding" in entry :
-            continue
-
-        file = target_dir / f"{Path(entry["wav_file_path"]).stem}.txt"
-        with open(file, "r", encoding="utf-8") as f:
-            embedding = f.read().strip()
-        entry["embedding"] = [ float(x) for x in embedding.split(", ") ]
-
-    return dataset
-
-
-
+        k = entry[key]
+        if k not in groups :
+            groups[k] = []
+        groups[k].append(entry)
+    
+    for k, values in groups.items() :
+        split_and_save_dataset(values, save_file, remaining_keys, train_dev_test, _seed)
+    
 # print_directory_tree("./data/datasets/TORGO")
 # i = print_all_prompts("./data/datasets/TORGO")
 # print(i)
+
