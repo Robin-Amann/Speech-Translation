@@ -13,7 +13,7 @@ import evaluate
 from src.magic_strings import WHISPER_V3_MODEL_NAME, WHISPER_V3_LORA_CHECKPOINT_DIR, WHISPER_V3_CHECKPOINT_DIR
 from src.training_args import whisper_local_steps, whisper_cluster_steps
 from transformers import Seq2SeqTrainer
-
+from datasets.features._torchcodec import AudioDecoder
 
 ### Define a Data Collator
 # see the blogpost
@@ -154,15 +154,51 @@ def finetune_lora(dataset: DatasetDict, local=True) :
 
     trainer.train()
 
-# warning: 'pin_memory' argument is set as true but no accelerator is found, then device pinned memory won't be used.
-# `use_cache = True` is incompatible with gradient checkpointing. Setting `use_cache = False`...
 
-def inference() :
+def inference(data: str | list[str] | AudioDecoder | list[AudioDecoder], checkpoint: str="checkpoint-10", batch_size=8, target_language="english") -> str | list[str]:
+    """data is a single path or a list of paths to audio files"""
+
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+
     # load checkpoint
-    # base = WhisperForConditionalGeneration.from_pretrained(WHISPER_V3_MODEL_NAME, cache_dir=WHISPER_V3_CHECKPOINT_DIR)
-    # lora_model = PeftModel.from_pretrained(base, WHISPER_V3_LORA_CHECKPOINT_DIR + "/checkpoint-n")
-    pass
+    base = WhisperForConditionalGeneration.from_pretrained(
+        WHISPER_V3_MODEL_NAME, 
+        cache_dir=WHISPER_V3_CHECKPOINT_DIR,
+        dtype=dtype, 
+        low_cpu_mem_usage=True, 
+        use_safetensors=True
+    )
     
+    model = PeftModel.from_pretrained(base, WHISPER_V3_LORA_CHECKPOINT_DIR + f"/{checkpoint}")
+
+    model.to(device)
+
+    processor = WhisperProcessor.from_pretrained(
+        WHISPER_V3_MODEL_NAME, 
+        cache_dir=WHISPER_V3_CHECKPOINT_DIR, 
+        language=target_language, 
+        task="transcribe"
+    )
+
+    pipe = pipeline(
+        "automatic-speech-recognition",
+        model=model,
+        tokenizer=processor.tokenizer,
+        feature_extractor=processor.feature_extractor,
+        dtype=dtype,
+        device=device,
+    )
+
+    result = pipe(data, batch_size=batch_size, generate_kwargs={"language": target_language})
+
+    print(result)
+    if type(data) != list :
+        return result["text"]
+    else :
+        return [ item["text"] for item in result]
+
+
 # Create the LoRA configuration
 # W = W + alpha / r * BA
 # standard initialization
@@ -186,6 +222,8 @@ def inference() :
 #     lora_magnitude_vector (for training)
 
 
+# warning: 'pin_memory' argument is set as true but no accelerator is found, then device pinned memory won't be used.
+# `use_cache = True` is incompatible with gradient checkpointing. Setting `use_cache = False`...
 
 # (*1)
 # - error: 

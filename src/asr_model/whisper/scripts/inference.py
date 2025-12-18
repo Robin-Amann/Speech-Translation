@@ -1,9 +1,9 @@
 import torch
-from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
+from transformers import AutoModelForSpeechSeq2Seq, WhisperProcessor, pipeline
 from src.magic_strings import WHISPER_V3_MODEL_NAME, WHISPER_V3_CHECKPOINT_DIR
+from datasets.features._torchcodec import AudioDecoder
 
-
-def inference(data: str | list[str], batch_size=8, target_language="english") -> str | list[str]:
+def inference(data: str | list[str] | AudioDecoder | list[AudioDecoder], batch_size=8, target_language="english") -> str | list[str]:
     """data is a single path or a list of paths to audio files"""
 
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -18,7 +18,12 @@ def inference(data: str | list[str], batch_size=8, target_language="english") ->
     )
     model.to(device)
 
-    processor = AutoProcessor.from_pretrained(WHISPER_V3_MODEL_NAME)
+    processor = WhisperProcessor.from_pretrained(
+        WHISPER_V3_MODEL_NAME, 
+        cache_dir=WHISPER_V3_CHECKPOINT_DIR, 
+        language="english", 
+        task="transcribe"
+    )
 
     pipe = pipeline(
         "automatic-speech-recognition",
@@ -31,7 +36,7 @@ def inference(data: str | list[str], batch_size=8, target_language="english") ->
 
     result = pipe(data, batch_size=batch_size, generate_kwargs={"language": target_language})
 
-    if type(data) == str :
+    if type(data) != list :
         return result["text"]
     else :
         return [ item["text"] for item in result]
