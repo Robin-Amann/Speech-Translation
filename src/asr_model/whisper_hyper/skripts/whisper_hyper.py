@@ -104,10 +104,8 @@ class HyperLoRAWhisperASRModel(PreTrainedModel):
 
     def _make_hook(self, new_A: nn.Parameter, new_B: nn.Parameter):
         def hook(module, module_input, module_output):
-            with torch.no_grad():
-                module.lora_A.default.copy_(new_A)
-                module.lora_B.default.copy_(new_B)
-
+            module.lora_A.default = new_A
+            module.lora_B.default = new_B
             return module_output
 
         return hook
@@ -167,6 +165,23 @@ class HyperLoRAWhisperASRModel(PreTrainedModel):
 
         return outputs
 
+
+
+# training loop
+optimizer = torch.optim.AdamW(
+    self.hypermodel.parameters(),
+    lr=5e-5,
+)
+
+outputs = model(
+    audio=batch_audio,
+    labels=batch_labels,
+)
+
+loss = outputs.loss
+loss.backward()
+optimizer.step()
+optimizer.zero_grad()
 
 
 
