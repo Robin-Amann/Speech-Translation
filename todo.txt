@@ -1,0 +1,54 @@
+
+[x] data preperation
+- [x] inspect data
+- [x] how many utterances per speaker
+
+[x] dataset to embeddings
+- [x] store embeddings
+- [x] visualize cohorts (visualize for speaker id to see if there is overlap (should be))
+- [x] generate labels for data using the GMM
+- [ ] see how much silence is in each datapoint and if that influences the embeddings
+
+
+[x] split datast
+- [x] split 80 / 10 / 10 (train / dev / test) for each speaker
+- [x] results in same split for cohort and overall
+
+[x] run whisper on data to see if there are easier and more difficult speakers
+
+[x] train whisper Baseline
+- [x] lora adapter specific for one speaker (on one cohort and then one speaker in that cohort, expected that results for different speaker in same cohort is skewed since model saw those speakers in training)
+- [ ] hypermodel like in the paper (train on subsets of cohorts to see how it generalizes to other cohorts)
+  - [ ] train cohort -> train speaker
+  - [ ] once for each cohort if Possible
+
+[ ] train gating network
+[ ] trait experts
+[ ] train both jointly
+
+[ ] evaluation
+                          cohort A                cohort B                cohort C
+                    speaker 1   speaker 2   speaker 3   speaker 4   speaker 5   speaker 6
+#utterances             n           n           n           n           n           n
+
+whisper                 x           x           x           x           x           x
+whisper_lora_A1         x           x           x           x           x           x
+whisper_lora_B3         x           x           x           x           x           x
+whisper_lora_C5         x           x           x           x           x           x
+whisper_hyper_AB        x           x           x           x           x           x
+whisper_moe_hyper_AB    x           x           x           x           x           x
+
+-> from the number of utterances and the score per speaker a score per cohort or a general score can be calculated
+
+
+
+todo after meeting
+- whisper-v3 finetuning hallucination
+- tensorboard (visualize training progress)
+- find correct trainings arguments
+- dependency list / setup cluster
+- write job scripts
+- find finite mixture model where the fundamental distribution is not gaussian
+  - density estimation via mixture models
+  - Mixtures of exponential-family distributions
+  - Nonparametric mixtures (e.g., Dirichlet process mixtures)

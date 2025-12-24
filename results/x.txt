@@ -1,2 +1,0 @@
-contains txt files with results.
-for each model one file.

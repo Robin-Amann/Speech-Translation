@@ -1,3 +1,6 @@
+# Python › Analysis: Type Checking Mode
+# ffmpeg full shared: https://www.gyan.dev/ffmpeg/builds/
+
 Current approaches for atypical speech
 - (1) 2 step fintuning
   1. finetune model to cohort
@@ -66,76 +69,29 @@ Full pipeline (cascaded)
 - audio > ASR model > text > MT model > text
 
 
-
-
-
-
 TORGO
 ├─ F
 │  ├─ F01
 │  │  └─ Session1
-│  │     ├─ phn_arrayMic
-│  │     ├─ prompts
-│  │     └─ wav_headMic
 │  ├─ F03
 │  │  ├─ Session1
-│  │  │  ├─ phn_arrayMic
-│  │  │  ├─ prompts
-│  │  │  └─ wav_headMic
 │  │  ├─ Session2
-│  │  │  ├─ phn_headMic
-│  │  │  ├─ prompts
-│  │  │  └─ wav_headMic
 │  │  └─ Session3
-│  │     ├─ phn_headMic
-│  │     ├─ prompts
-│  │     └─ wav_headMic
 │  └─ F04
 │     ├─ Session1
-│     │  ├─ prompts
-│     │  └─ wav_arrayMic
 │     └─ Session2
-│        ├─ phn_headMic
-│        ├─ prompts
-│        └─ wav_headMic
 └─ M
    ├─ M01
    │  ├─ Session1
-   │  │  ├─ phn_headMic
-   │  │  ├─ prompts
-   │  │  └─ wav_headMic
    │  └─ Session2_3
-   │     ├─ phn_arrayMic
-   │     ├─ prompts
-   │     └─ wav_headMic
    ├─ M02
    │  ├─ Session1
-   │  │  ├─ phn_arrayMic
-   │  │  ├─ prompts
-   │  │  └─ wav_headMic
    │  └─ Session2
-   │     ├─ phn_arrayMic
-   │     ├─ prompts
-   │     └─ wav_headMic
    ├─ M03
    │  └─ Session2
-   │     ├─ prompts
-   │     └─ wav_headMic
    ├─ M04
    │  ├─ Session1
-   │  │  ├─ phn_arrayMic
-   │  │  ├─ prompts
-   │  │  └─ wav_arrayMic
    │  └─ Session2
-   │     ├─ phn_headMic
-   │     ├─ prompts
-   │     └─ wav_headMic
    └─ M05
       ├─ Session1
-      │  ├─ phn_headMic
-      │  ├─ prompts
-      │  └─ wav_headMic
       └─ Session2
-         ├─ phn_headMic
-         ├─ prompts
-         └─ wav_headMic
