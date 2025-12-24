@@ -16,6 +16,7 @@ Baseline
   - M2 should outperform M1 for T
   - M2 should also outperform M1 for U, V but that is not important (compare how good M2 performs to new cohorts)
   - both models should outperform M3 in all cohorts
+  - also evaluate M1 after step 1
 -> hypothesis: (1) is AOTA for specific speaker and (2) is better in generalizing (maybe even to unseen cohorts)
 
 (3) Approach
