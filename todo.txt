@@ -43,12 +43,19 @@ whisper_moe_hyper_AB    x           x           x           x           x       
 
 
 todo after meeting
-- whisper-v3 finetuning hallucination
-- tensorboard (visualize training progress)
-- find correct trainings arguments
-- dependency list / setup cluster
+- whisper-v3 finetuning hallucination (Stefan)
+- tensorboard (visualize training progress) (Stefan)
+- find correct trainings arguments (fabian)
+- dependency list / setup cluster (fabian)
 - write job scripts
-- find finite mixture model where the fundamental distribution is not gaussian
+- find finite mixture model where the fundamental distribution is not gaussian (stefan)
   - density estimation via mixture models
   - Mixtures of exponential-family distributions
   - Nonparametric mixtures (e.g., Dirichlet process mixtures)
+
+other todos
+- abgabe SALMONN (fabian?)
+
+- see if there are some utterances that are said by all speakers as test baseline
+
+nächstes treffen: 29. vormittags (11?)
