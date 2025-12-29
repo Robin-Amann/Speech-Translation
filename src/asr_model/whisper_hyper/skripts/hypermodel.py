@@ -13,15 +13,18 @@ from torch import nn, Tensor
 
 
 class MoE_HyperModel(nn.Module):
+    """
+    Mixture-of-Experts hypernetwork that generates LoRA adapters.
+    lora_dim = (f_in, r, f_out)
+    """
 
     def __init__(self, embedding_dim: int, context_dim: int, lora_dim: tuple[int, int, int], n_experts: int):
-        "lora_dim = (in, r, out)"
-
         super().__init__()
 
         self.embedding_dim = embedding_dim
         self.context_dim = context_dim
-        self.lora_dim = lora_dim
+        self.f_in, self.r, self.f_out = lora_dim
+        self.n_experts = n_experts
 
         self.gating_model = nn.Sequential(
             nn.Linear(embedding_dim, 2048),
@@ -39,54 +42,42 @@ class MoE_HyperModel(nn.Module):
             for _ in range(n_experts)
         ])
         
-        self.decoder_A = nn.Linear(512, self.lora_dim[0] * self.lora_dim[1])
-        self.decoder_B = nn.Linear(512, self.lora_dim[1] * self.lora_dim[2])
+        self.decoder_A = nn.Linear(512, self.f_in * self.r)
+        self.decoder_B = nn.Linear(512, self.r * self.f_out)
 
 
-    def forward(self, s: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
-        x = torch.cat([s, c], dim=-1)
+    def _create_adapter_one_hot(self, pos_idx: int, device: torch.device) -> torch.Tensor:
+        oh = torch.zeros(self.context_dim, device=device, dtype=torch.float32)
+        oh[pos_idx] = 1.0
+        return oh
 
-        weights: Tensor = self.gating_model(s)
-        expert_outputs = torch.stack((expert(x) for expert in self.experts), dim=0)
-        z = (weights[:, None] * expert_outputs).sum(dim=0)
-
-        A: Tensor = self.decoder_A(z)
-        B: Tensor = self.decoder_B(z)
-        return A.reshape(self.lora_dim[0], self.lora_dim[1]), B.reshape(self.lora_dim[1], self.lora_dim[2])
-
-
-    def supervised_step(
-        self,
-        speech_embedding: torch.Tensor,
-        context: torch.Tensor,
-        target_A: torch.Tensor,
-        target_B: torch.Tensor,
-    ) -> torch.Tensor:
+    # output [M, B, in_f, r], [M, B, in_f, r]
+    def forward(self, s: torch.Tensor) -> torch.Tensor:
         """
-        speech_embedding: (B, D)
-        context: (B, C)
-        target_A: (B, in, r)
-        target_B: (B, r, out)
+        s: speech embedding [B, embedding_dim]
+
+        Returns
+            :A: [context_dim, B, f_in, r]
+            :B: [context_dim, B, r, f_out]
         """
 
-        pred_A, pred_B = self(speech_embedding, context)
+        device = s.device
+        weights: Tensor = self.gating_model(s)  # [B, n_experts]
 
-        loss_A = torch.mean((pred_A - target_A) ** 2)
-        loss_B = torch.mean((pred_B - target_B) ** 2)
+        outputs: list[Tensor] = []  # length context_dim [B, 512]
+        for idx in range(self.context_dim) :
+            c = self._create_adapter_one_hot(idx, device) # [context_dim]
+            if s.dim == 1 :
+                c = c.unsqueeze(dim=0).repeat(s.dim, 1) # [B, context_dim]
+            x = torch.cat([s, c], dim=-1) # [B, embedding_dim + context_dim]
+            
+            # expert -> [B, 512]            
+            expert_outputs = torch.stack((expert(x) for expert in self.experts), dim=-1) # [B, 512, n_experts]
+            z = (weights[:, None] * expert_outputs).sum(dim=-1) # [B, 512]
+            outputs.append(z)
+        
+        Z = torch.stack(outputs, dim=0) # [context_dim, B, 512]
 
-        return loss_A + loss_B
-
-
-# training loop
-optimizer = torch.optim.Adam(hypermodel.parameters(), lr=1e-4)
-
-for batch in dataloader:
-    s, c, A_gt, B_gt = batch
-    loss = hypermodel.supervised_step(s, c, A_gt, B_gt)
-
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
-
-class HyperModel(nn.Module) :
-    pass
+        A: Tensor = self.decoder_A(Z) # [context_dim, B, f_in * r]
+        B: Tensor = self.decoder_B(Z) # [context_dim, B, r * f_out]
+        return A.reshape(self.f_in, self.r), B.reshape(self.r, self.f_out)  # [context_dim, B, in_f, r], [context_dim, B, in_f, r]

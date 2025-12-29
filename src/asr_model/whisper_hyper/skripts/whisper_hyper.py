@@ -6,61 +6,86 @@ from peft import LoraConfig, get_peft_model
 from typing import Type
 from src.magic_strings import WHISPER_V3_MODEL_NAME
 from torch.utils.hooks import RemovableHandle
+from transformers.models.whisper.modeling_whisper import WhisperEncoderLayer, WhisperDecoderLayer
+
+# the idea here is to reimplement LoRA so that it is batch friendly
+# instead of implementing y = (W + AB) * x we implement
+# y_b = W * x_b  + (B_b * A_b) * x_b 
+class FunctionalLoRALinear(nn.Module):
+
+    def __init__(self, base_linear: nn.Linear):
+        super().__init__()
+        self.base_linear = base_linear
+
+        for p in self.base_linear.parameters():
+            p.requires_grad = False
+
+        self.in_features = base_linear.in_features
+        self.out_features = base_linear.out_features
+
+        # https://stackoverflow.com/questions/57540745/what-is-the-difference-between-register-parameter-and-register-buffer-in-pytorch 
+        # https://discuss.pytorch.org/t/what-is-the-difference-between-register-buffer-and-register-parameter-of-nn-module/32723
+        # "If you have parameters in your model, which should be saved and restored in the state_dict, but not trained by the optimizer, 
+        # you should register them as buffers. Buffers won’t be returned in model.parameters(), so that the optimizer won’t have a change to u…"
+        # persistent: whether the buffer is part of this module's state_dict (when the model is saved) 
+        self.register_buffer("A", None, persistent=False)
+        self.register_buffer("B", None, persistent=False)
+
+    def forward(
+        self,
+        x: torch.Tensor,        # [B, T, in_f]
+    ) -> torch.Tensor:
+        # W * x_b
+        y = self.base_linear(x)  # [B, T, out_f]
+        if self.A is None or self.B is None:
+            return y
+        # (B_b * A_b) * x_b 
+        tmp = torch.bmm(x, self.A)    # [B, T, r]
+        delta = torch.bmm(tmp, self.B)  # [B, T, out_f]
+        # this should be the same but I don't completely understand it
+        # delta = torch.einsum("btd,bdr,bro->bto", x, A, B)
+
+        return y + delta
+
 
 class HyperLoRAWhisperASRModel(PreTrainedModel):
 
-    def __init__(self, config: WhisperConfig, Hypermodel_cls: Type[nn.Module], **hypermodel_kwargs):
+    def __init__(self, config: WhisperConfig, Hypermodel_cls: Type[nn.Module], lora_rank: int, **hypermodel_kwargs):
         super().__init__(config)
 
         self.speech_encoder = WhisperModel.from_pretrained(WHISPER_V3_MODEL_NAME).encoder
-
-        # freeze speech encoder
         for p in self.speech_encoder.parameters():
             p.requires_grad = False
 
-        # load base model
-        model = WhisperForConditionalGeneration.from_pretrained(WHISPER_V3_MODEL_NAME)
-        lora_config = LoraConfig(
-            r=2,                        # rank of BA
-            lora_alpha=16,              # Typical values: 8, 16, 32
-            lora_dropout=0.05,          # dropout during learning
-            target_modules=["fc1"],     # Important: matches the module suffix
-            bias="none",                # none | lora_only | all
-            task_type="SEQ_2_SEQ_LM"    # "SEQ_2_SEQ_LM" | "CAUSAL_LM" | "TOKEN_CLS" | "QUESTION_ANS" | "FEATURE_EXTRACTION" | "IMAGE_CLASSIFICATION" (Whisper is a sequence-to-sequence language model)
-        )
-        self.base_model = get_peft_model(model, lora_config)
+        self.base_model = WhisperForConditionalGeneration.from_pretrained(WHISPER_V3_MODEL_NAME)
+        for p in self.base_model.parameters():
+            p.requires_grad = False
+
+        # replace fc1 layer with lora adapter
+        for layer in self.base_model.get_encoder().layers :
+            layer: WhisperEncoderLayer = layer
+            lora = FunctionalLoRALinear(layer.fc1)
+            layer.fc1 = lora
+
+        for layer in self.base_model.get_decoder().layers :
+            layer: WhisperDecoderLayer = layer
+            lora = FunctionalLoRALinear(layer.fc1)
+            layer.fc1 = lora
+
+        # see whisper implementation
+        f_in = config.d_model
+        f_out = config.encoder_ffn_dim
+        assert config.encoder_ffn_dim == config.decoder_ffn_dim
         
-        # get all LoRA layers and make sure they are the correct size
-        self.lora_modules: List[nn.Module] = [ module for name, module in self.base_model.named_modules() if "fc1" in name and hasattr(module, "lora_A") ]
-
-        A: nn.Linear
-        B: nn.Linear
-        A, B = self.lora_modules[0].lora_A.default, self.lora_modules[0].lora_B.default
-        dim_in, r, dim_out = A.in_features, A.out_features, B.out_features
-        assert A.out_features == B.in_features
-        for module in self.lora_modules :
-            A, B = module.lora_A.default, module.lora_B.default
-            assert A.in_features == dim_in and A.out_features == r
-            assert B.in_features == r and B.out_features == dim_out
-
-        # freeze LoRA adapters
-        for module in self.lora_modules:
-            module.lora_A.default.requires_grad = False
-            module.lora_B.default.requires_grad = False
-
-        speech_embedding_dim = self.speech_encoder.config.d_model  # should be output size of encoder
-        oh_dim = len(self.lora_modules)
         self.hypermodel = Hypermodel_cls(
-            embedding_dim=speech_embedding_dim,
-            context_dim=oh_dim,
-            lora_dim=(dim_in, r, dim_out),
-            **hypermodel_kwargs
+            embedding_dim=config.d_model,
+            num_modules=len(self.base_model.get_encoder().layers) + len(self.base_model.get_decoder().layers),
+            lora_dim=(f_in, lora_rank, f_out),
+            **hypermodel_kwargs,
         )
 
         self.feature_extractor_speech_encoder = WhisperFeatureExtractor.from_pretrained(WHISPER_V3_MODEL_NAME)
         self.feature_extractor_base = WhisperFeatureExtractor.from_pretrained(WHISPER_V3_MODEL_NAME)
-
-        self.hooks = []
 
 
     def compute_speech_embedding(self, audio: Optional[torch.Tensor] = None, input_features: Optional[torch.Tensor] = None, sampling_rate: int = 16000) -> torch.Tensor:
@@ -96,21 +121,6 @@ class HyperLoRAWhisperASRModel(PreTrainedModel):
         return embedding
 
 
-    def _create_adapter_one_hot(self, pos_idx: int, device: torch.device) -> torch.Tensor:
-        oh = torch.zeros(len(self.lora_modules), device=device, dtype=torch.float32)
-        oh[pos_idx] = 1.0
-        return oh
-
-
-    def _make_hook(self, new_A: nn.Parameter, new_B: nn.Parameter):
-        def hook(module, module_input, module_output):
-            module.lora_A.default = new_A
-            module.lora_B.default = new_B
-            return module_output
-
-        return hook
-
-
     def forward(
         self,
         audio: Optional[torch.Tensor] = None,
@@ -125,23 +135,22 @@ class HyperLoRAWhisperASRModel(PreTrainedModel):
 
         device = next(self.parameters()).device
 
-        # 1) compute speech embedding
         speech_embedding = self.compute_speech_embedding(audio, input_features_speech_embedding, sampling_rate)
         if speech_embedding.device != device:
             speech_embedding = speech_embedding.to(device)
         
-        # 2) For each fc1 module, compute weights via hypermodel and register hooks
-        self.hooks: list[RemovableHandle] = []
-        for idx, module in enumerate(self.lora_modules) :
-            oh = self._create_adapter_one_hot(idx, device=device)
-            # TODO: Make sure your hypermodel output tensors (new_A, new_B) require gradients, because you want gradients to flow through the hypernetwork.
-            new_A, new_B = self.hypermodel(speech_embedding, oh)
-            hook_fn = self._make_hook(new_A, new_B)
-            h = module.register_forward_hook(hook_fn)
-            self.hooks.append(h)
-  
-        # 3) Run forward (generation/training)
-        if input_features :
+        new_A, new_B = self.hypermodel(speech_embedding)
+        # A_all: [M, B, in_f, r]
+        # B_all: [M, B, r, out_f]
+
+        for i, layer in self.base_model.get_encoder().layers + self.base_model.get_decoder().layers :
+            layer.fc1.A = new_A[i]
+            layer.fc1.B = new_B[i]
+            # lora.A = lora.A.to(x.device, x.dtype)
+            # lora.B = lora.B.to(x.device, x.dtype)
+
+
+        if input_features is not None :
             model_kwargs = {"input_features": input_features.to(device)}
         else :
             # TODO: check if that is necessary
@@ -153,57 +162,63 @@ class HyperLoRAWhisperASRModel(PreTrainedModel):
             input_features = inputs["input_features"].to(device)
             model_kwargs = {"input_features": input_features}
 
-        if labels :
+        if labels is not None :
             model_kwargs["labels"] = labels.to(device)
 
         outputs = self.base_model(**model_kwargs, **generate_kwargs)
 
-        # 4) Remove hooks
-        for h in self.hooks:
-            h.remove()
-        self.hooks = []
-
         return outputs
-
-
-
-# training loop
-optimizer = torch.optim.AdamW(
-    self.hypermodel.parameters(),
-    lr=5e-5,
-)
-
-outputs = model(
-    audio=batch_audio,
-    labels=batch_labels,
-)
-
-loss = outputs.loss
-loss.backward()
-optimizer.step()
-optimizer.zero_grad()
-
-
-
-# permanent hooks alternative:
-#     def _create_permanent_hook(self, idx: int):
-#         module = self.lora_modules[idx]
-
-#         def hook(module, module_input, module_output):
-#             # The forward pass will set these dynamically
-#             oh = self._create_adapter_one_hot(idx, device=module.lora_A.default.device)
-#             new_A, new_B = self.hypermodel(self.current_speech_embedding, oh)
-#             with torch.no_grad():
-#                 module.lora_A.default.copy_(new_A)
-#                 module.lora_B.default.copy_(new_B)
-#             return module_output
-
-#         return module.register_forward_hook(hook)
-
-#     in __init__:
-#         self.hooks = [self._create_permanent_hook(idx) for idx in range(len(self.lora_modules))]
-
-#     for each forward pass set self.current_speech_embedding
     
 
 
+
+# from transformers import WhisperForConditionalGeneration
+# from src.magic_strings import WHISPER_V3_MODEL_NAME, WHISPER_V3_CHECKPOINT_DIR
+
+# model = WhisperForConditionalGeneration.from_pretrained(WHISPER_V3_MODEL_NAME, cache_dir=WHISPER_V3_CHECKPOINT_DIR)
+
+# for name, module in model.named_modules():
+#     print(name)
+
+# whisper large v3 modules:
+# model
+#     model.encoder
+#         model.encoder.conv1
+#         model.encoder.conv2
+#         model.encoder.embed_positions
+#         model.encoder.layers [n:0-31]
+#             model.encoder.layers.n
+#                 model.encoder.layers.n.self_attn
+#                     model.encoder.layers.n.self_attn.k_proj
+#                     model.encoder.layers.n.self_attn.v_proj
+#                     model.encoder.layers.n.self_attn.q_proj
+#                     model.encoder.layers.n.self_attn.out_proj
+#                     model.encoder.layers.n.self_attn_layer_norm
+#                 model.encoder.layers.n.activation_fn
+#                 model.encoder.layers.n.fc1
+#                 model.encoder.layers.n.fc2
+#                 model.encoder.layers.n.final_layer_norm
+#             model.encoder.layer_norm
+#     model.decoder
+#         model.decoder.embed_tokens
+#         model.decoder.embed_positions
+#         model.decoder.layers [n:0-31]
+#             model.decoder.layers.n
+#                 model.decoder.layers.n.self_attn
+#                     model.decoder.layers.n.self_attn.k_proj
+#                     model.decoder.layers.n.self_attn.v_proj
+#                     model.decoder.layers.n.self_attn.q_proj
+#                     model.decoder.layers.n.self_attn.out_proj
+#                 model.decoder.layers.n.activation_fn
+#                 model.decoder.layers.n.self_attn_layer_norm
+#                 model.decoder.layers.n.encoder_attn
+#                     model.decoder.layers.n.encoder_attn.k_proj
+#                     model.decoder.layers.n.encoder_attn.v_proj
+#                     model.decoder.layers.n.encoder_attn.q_proj
+#                     model.decoder.layers.n.encoder_attn.out_proj
+#                 model.decoder.layers.n.encoder_attn_layer_norm
+#                 model.decoder.layers.n.fc1
+#                 model.decoder.layers.n.fc2
+#                 model.decoder.layers.n.final_layer_norm
+#         model.decoder.layer_norm
+# proj_out
