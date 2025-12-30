@@ -1,4 +1,3 @@
-
 [x] data preperation
 - [x] inspect data
 - [x] how many utterances per speaker
@@ -41,21 +40,28 @@ whisper_moe_hyper_AB    x           x           x           x           x       
 -> from the number of utterances and the score per speaker a score per cohort or a general score can be calculated
 
 
+done
+- whisper-v3 finetuning hallucination (Stefan)
+  -> whisper-v3 is not fixable -> run a benchmark on the dataset on v2 and v3
+  -> if v3 is a lot better in the domain we have to risk it. otherwise just use v2
 
 todo after meeting
-- whisper-v3 finetuning hallucination (Stefan)
 - tensorboard (visualize training progress) (Stefan)
-- find correct trainings arguments (fabian)
-- dependency list / setup cluster (fabian)
-- write job scripts
 - find finite mixture model where the fundamental distribution is not gaussian (stefan)
   - density estimation via mixture models
   - Mixtures of exponential-family distributions
   - Nonparametric mixtures (e.g., Dirichlet process mixtures)
+- find correct trainings arguments (fabian)
+- dependency list / setup cluster (fabian)
+- write job scripts (robin)
+  - jobs: 
+    - train: whisper-LoRA, whisper-hyper (paper), gating model, experts, gating model + experts
+    - inference: whisper v2, whisper v3, whisper-LoRA, whisper-hyper, whisper-MoE 
+    - all models need to be trained and run interferance on specific cohorts and speakers
+      - should be no problem since it is only data management
 
 other todos
 - abgabe SALMONN (fabian?)
 
+ideas
 - see if there are some utterances that are said by all speakers as test baseline
-
-nächstes treffen: 29. vormittags (11?)

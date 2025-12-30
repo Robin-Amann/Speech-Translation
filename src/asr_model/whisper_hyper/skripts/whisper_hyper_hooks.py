@@ -7,8 +7,13 @@ from typing import Type
 from src.magic_strings import WHISPER_V3_MODEL_NAME
 from torch.utils.hooks import RemovableHandle
 
+"""
+this file does not work as is. 
+I only keep it if the other method does not work.
 
-# this version "should" work but it does not support batches. during training and inference the batch size needs to be 1
+this version "should" work but it does not support batches. 
+during training and inference the batch size needs to be 1
+"""
 class HyperLoRAWhisperASRModel(PreTrainedModel):
 
     def __init__(self, config: WhisperConfig, Hypermodel_cls: Type[nn.Module], **hypermodel_kwargs):

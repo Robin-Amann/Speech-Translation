@@ -1,11 +1,9 @@
 import torch
 from torch import nn
 from transformers import PreTrainedModel, WhisperFeatureExtractor, WhisperForConditionalGeneration, WhisperModel, WhisperConfig
-from typing import Optional, List, Dict, Any
-from peft import LoraConfig, get_peft_model
+from typing import Optional, Dict, Any
 from typing import Type
 from src.magic_strings import WHISPER_V3_MODEL_NAME
-from torch.utils.hooks import RemovableHandle
 from transformers.models.whisper.modeling_whisper import WhisperEncoderLayer, WhisperDecoderLayer
 
 # the idea here is to reimplement LoRA so that it is batch friendly
@@ -20,16 +18,16 @@ class FunctionalLoRALinear(nn.Module):
         for p in self.base_linear.parameters():
             p.requires_grad = False
 
-        self.in_features = base_linear.in_features
-        self.out_features = base_linear.out_features
+        self.in_f = base_linear.in_features
+        self.out_f = base_linear.out_features
 
         # https://stackoverflow.com/questions/57540745/what-is-the-difference-between-register-parameter-and-register-buffer-in-pytorch 
         # https://discuss.pytorch.org/t/what-is-the-difference-between-register-buffer-and-register-parameter-of-nn-module/32723
         # "If you have parameters in your model, which should be saved and restored in the state_dict, but not trained by the optimizer, 
         # you should register them as buffers. Buffers won’t be returned in model.parameters(), so that the optimizer won’t have a change to u…"
         # persistent: whether the buffer is part of this module's state_dict (when the model is saved) 
-        self.register_buffer("A", None, persistent=False)
-        self.register_buffer("B", None, persistent=False)
+        self.register_buffer("A", None, persistent=False) # [B, in_f, r]
+        self.register_buffer("B", None, persistent=False) # [B, r, out_f]
 
     def forward(
         self,
@@ -39,13 +37,16 @@ class FunctionalLoRALinear(nn.Module):
         y = self.base_linear(x)  # [B, T, out_f]
         if self.A is None or self.B is None:
             return y
+        A: torch.Tensor = self.A.to(x.device, x.dtype)
+        B: torch.Tensor = self.B.to(x.device, x.dtype)
+
         # (B_b * A_b) * x_b 
-        tmp = torch.bmm(x, self.A)    # [B, T, r]
-        delta = torch.bmm(tmp, self.B)  # [B, T, out_f]
+        tmp = torch.bmm(x, A)      # [B, T, in_f] x [B, in_f, r] = [B, T, r]
+        delta = torch.bmm(tmp, B)  # [B, T, r] x [B, r, out_f] = [B, T, out_f]
         # this should be the same but I don't completely understand it
         # delta = torch.einsum("btd,bdr,bro->bto", x, A, B)
 
-        return y + delta
+        return y + delta # [B, T, out_f]
 
 
 class HyperLoRAWhisperASRModel(PreTrainedModel):
@@ -79,7 +80,7 @@ class HyperLoRAWhisperASRModel(PreTrainedModel):
         
         self.hypermodel = Hypermodel_cls(
             embedding_dim=config.d_model,
-            num_modules=len(self.base_model.get_encoder().layers) + len(self.base_model.get_decoder().layers),
+            context_dim=len(self.base_model.get_encoder().layers) + len(self.base_model.get_decoder().layers),
             lora_dim=(f_in, lora_rank, f_out),
             **hypermodel_kwargs,
         )
@@ -95,15 +96,12 @@ class HyperLoRAWhisperASRModel(PreTrainedModel):
         device = next(self.speech_encoder.parameters()).device  # why not self.speech_encoder.device ?
         
         if input_features is None :
-            # TODO: check if that is necessary
             if isinstance(audio, torch.Tensor):
-                audio_np = audio.detach().cpu().numpy()
-            else:
-                audio_np = audio  # assume numpy already
+                audio = audio.detach().cpu().numpy()
 
             # The processor returns a dict with input_features key
-            inputs = self.feature_extractor_speech_encoder(audio_np, sampling_rate=sampling_rate, return_tensors="pt", padding=True)
-            input_features = inputs["input_features"].to(device)  # shape (B, seq_len, feature_dim)
+            inputs = self.feature_extractor_speech_encoder(audio, sampling_rate=sampling_rate, return_tensors="pt", padding=True)
+            input_features = inputs["input_features"].to(device)  # shape [B, seq_len, feature_dim]
 
         if input_features.device != device:
             input_features = input_features.to(device)
@@ -111,11 +109,11 @@ class HyperLoRAWhisperASRModel(PreTrainedModel):
         encoder_outputs = self.speech_encoder(input_features)  # BaseModelOutputWithPooling etc.
         # Some encoder outputs have last_hidden_state as .last_hidden_state, or .hidden_states
         if hasattr(encoder_outputs, "last_hidden_state") :
-            hidden_states = encoder_outputs.last_hidden_state # (B, T, d_model)
+            hidden_states: torch.Tensor = encoder_outputs.last_hidden_state # [B, T, d_model]
         else :
-            hidden_states = encoder_outputs[0] # (B, T, d_model)
+            hidden_states: torch.Tensor = encoder_outputs[0] # [B, T, d_model]
 
-        # Average over time dimension -> (B, d_model)
+        # Average over time dimension -> (B, d_model]
         embedding = hidden_states.mean(dim=1)
 
         return embedding
@@ -135,30 +133,27 @@ class HyperLoRAWhisperASRModel(PreTrainedModel):
 
         device = next(self.parameters()).device
 
-        speech_embedding = self.compute_speech_embedding(audio, input_features_speech_embedding, sampling_rate)
+        speech_embedding = self.compute_speech_embedding(audio, input_features_speech_embedding, sampling_rate) # [B, d_model]
         if speech_embedding.device != device:
             speech_embedding = speech_embedding.to(device)
         
-        new_A, new_B = self.hypermodel(speech_embedding)
-        # A_all: [M, B, in_f, r]
-        # B_all: [M, B, r, out_f]
+        new_A, new_B = self.hypermodel(speech_embedding)   # [M, B, in_f, r], [M, B, r, out_f]
 
-        for i, layer in self.base_model.get_encoder().layers + self.base_model.get_decoder().layers :
-            layer.fc1.A = new_A[i]
-            layer.fc1.B = new_B[i]
-            # lora.A = lora.A.to(x.device, x.dtype)
-            # lora.B = lora.B.to(x.device, x.dtype)
+        for i, layer in self.base_model.get_encoder().layers :
+            layer.fc1.A = new_A[i] # [B, in_f, r]
+            layer.fc1.B = new_B[i] # [B, r, out_f]
 
+        for i, layer in self.base_model.get_decoder().layers :
+            layer.fc1.A = new_A[i] # [B, in_f, r]
+            layer.fc1.B = new_B[i] # [B, r, out_f]
 
         if input_features is not None :
             model_kwargs = {"input_features": input_features.to(device)}
         else :
-            # TODO: check if that is necessary
             if isinstance(audio, torch.Tensor):
-                audio_np = audio.detach().cpu().numpy()
-            else:
-                audio_np = audio
-            inputs = self.feature_extractor_base(audio_np, sampling_rate=sampling_rate, return_tensors="pt", padding=True)
+                audio = audio.detach().cpu().numpy()
+
+            inputs = self.feature_extractor_base(audio, sampling_rate=sampling_rate, return_tensors="pt", padding=True)
             input_features = inputs["input_features"].to(device)
             model_kwargs = {"input_features": input_features}
 
