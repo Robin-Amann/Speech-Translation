@@ -5,21 +5,40 @@ from typing import Optional, Dict, Any
 from typing import Type
 from src.magic_strings import WHISPER_V3_MODEL_NAME
 from transformers.models.whisper.modeling_whisper import WhisperEncoderLayer, WhisperDecoderLayer
+import math
 
 # the idea here is to reimplement LoRA so that it is batch friendly
 # instead of implementing y = (W + AB) * x we implement
 # y_b = W * x_b  + (B_b * A_b) * x_b 
 class FunctionalLoRALinear(nn.Module):
 
-    def __init__(self, base_linear: nn.Linear):
+    def __init__(
+        self,
+        base_linear: nn.Linear,
+        r: int,
+        lora_alpha: float = 1.0,
+        lora_dropout: float = 0.0,
+    ):
         super().__init__()
-        self.base_linear = base_linear
 
+        self.base_linear = base_linear
         for p in self.base_linear.parameters():
             p.requires_grad = False
 
         self.in_f = base_linear.in_features
         self.out_f = base_linear.out_features
+        self.r = r
+
+        # Scaling (identical to HF)
+        self.lora_alpha = lora_alpha
+        self.scaling = lora_alpha / r if r > 0 else 1.0
+
+        # Dropout (applied to x)
+        # TODO: in the documentation it says that dropout is only applied during training (as it should be)
+        # but how does the model know during a forward pass if it is in training?
+        self.lora_dropout = (
+            nn.Dropout(p=lora_dropout) if lora_dropout > 0.0 else nn.Identity()
+        )
 
         # https://stackoverflow.com/questions/57540745/what-is-the-difference-between-register-parameter-and-register-buffer-in-pytorch 
         # https://discuss.pytorch.org/t/what-is-the-difference-between-register-buffer-and-register-parameter-of-nn-module/32723
@@ -29,29 +48,68 @@ class FunctionalLoRALinear(nn.Module):
         self.register_buffer("A", None, persistent=False) # [B, in_f, r]
         self.register_buffer("B", None, persistent=False) # [B, r, out_f]
 
+    def reset_lora_parameters(self):
+        """
+        HF-equivalent initialization:
+        A ~ Kaiming
+        B = 0
+        """
+        if self.A is not None:
+            # peft/src/peft/tuners/lora/layer.py line 260
+            nn.init.kaiming_uniform_(self.A, a=math.sqrt(5))
+        if self.B is not None:
+            nn.init.zeros_(self.B)
+
+
+    def set_lora_weights(self, A: torch.Tensor, B: torch.Tensor):
+        """
+        Explicit setter for specific LoRA parameters.
+        Shapes:
+          A: [B, in_f, r]
+          B: [B, r, out_f]
+        """
+        assert A.dim() == 3 and B.dim() == 3
+        assert A.shape[1:] == (self.in_f, self.r)
+        assert B.shape[1:] == (self.r, self.out_f)
+
+        self.A = A
+        self.B = B
+
+
     def forward(
         self,
         x: torch.Tensor,        # [B, T, in_f]
     ) -> torch.Tensor:
         # W * x_b
         y = self.base_linear(x)  # [B, T, out_f]
-        if self.A is None or self.B is None:
+    
+        if self.A is None or self.B is None or self.r == 0:
             return y
         A: torch.Tensor = self.A.to(x.device, x.dtype)
         B: torch.Tensor = self.B.to(x.device, x.dtype)
 
+        # HF behavior: dropout applied to input of LoRA branch
+        x_dropped = self.lora_dropout(x)
+
         # (B_b * A_b) * x_b 
-        tmp = torch.bmm(x, A)      # [B, T, in_f] x [B, in_f, r] = [B, T, r]
-        delta = torch.bmm(tmp, B)  # [B, T, r] x [B, r, out_f] = [B, T, out_f]
+        tmp = torch.bmm(x_dropped, A)       # [B, T, in_f] x [B, in_f, r] = [B, T, r]
+        delta = torch.bmm(tmp, B)           # [B, T, r] x [B, r, out_f] = [B, T, out_f]
         # this should be the same but I don't completely understand it
         # delta = torch.einsum("btd,bdr,bro->bto", x, A, B)
 
-        return y + delta # [B, T, out_f]
+        return y + self.scaling * delta # [B, T, out_f]
 
 
 class HyperLoRAWhisperASRModel(PreTrainedModel):
 
-    def __init__(self, config: WhisperConfig, Hypermodel_cls: Type[nn.Module], lora_rank: int, **hypermodel_kwargs):
+    def __init__(
+            self, 
+            config: WhisperConfig, 
+            Hypermodel_cls: Type[nn.Module], 
+            lora_rank: int, 
+            lora_alpha: float = 1.0,
+            lora_dropout: float = 0.0,
+            **hypermodel_kwargs):
         super().__init__(config)
 
         self.speech_encoder = WhisperModel.from_pretrained(WHISPER_V3_MODEL_NAME).encoder
@@ -65,12 +123,12 @@ class HyperLoRAWhisperASRModel(PreTrainedModel):
         # replace fc1 layer with lora adapter
         for layer in self.base_model.get_encoder().layers :
             layer: WhisperEncoderLayer = layer
-            lora = FunctionalLoRALinear(layer.fc1)
+            lora = FunctionalLoRALinear(layer.fc1, lora, lora_alpha, lora_dropout)
             layer.fc1 = lora
 
         for layer in self.base_model.get_decoder().layers :
             layer: WhisperDecoderLayer = layer
-            lora = FunctionalLoRALinear(layer.fc1)
+            lora = FunctionalLoRALinear(layer.fc1, lora, lora_alpha, lora_dropout)
             layer.fc1 = lora
 
         # see whisper implementation
@@ -140,12 +198,10 @@ class HyperLoRAWhisperASRModel(PreTrainedModel):
         new_A, new_B = self.hypermodel(speech_embedding)   # [M, B, in_f, r], [M, B, r, out_f]
 
         for i, layer in self.base_model.get_encoder().layers :
-            layer.fc1.A = new_A[i] # [B, in_f, r]
-            layer.fc1.B = new_B[i] # [B, r, out_f]
+            layer.fc1.set_lora_weights(new_A[i], new_B[i])
 
         for i, layer in self.base_model.get_decoder().layers :
-            layer.fc1.A = new_A[i] # [B, in_f, r]
-            layer.fc1.B = new_B[i] # [B, r, out_f]
+            layer.fc1.set_lora_weights(new_A[i], new_B[i])
 
         if input_features is not None :
             model_kwargs = {"input_features": input_features.to(device)}
